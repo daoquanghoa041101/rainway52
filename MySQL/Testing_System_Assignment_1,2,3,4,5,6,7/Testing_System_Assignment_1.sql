@@ -341,6 +341,344 @@ RIGHT JOIN question q on a.QuestionID = q.QuestionID
 WHERE a.AnswerID IS NULL; 
 -- /////////////////////////Testing_System_Assignment_5//////////////////
 -- Question 1: Tạo view có chứa danh sách nhân viên thuộc phòng ban sale
+create or replace view vw_listsale as
+SELECT a.email,a.fullname, d.departmentname  FROM `account`a
+INNER JOIN department d on a.departmentid=d.departmentid
+WHERE d.departmentname='sale'; 
+-- Question 2: Tạo view có chứa thông tin các account tham gia vào nhiều group nhất 
+CREATE OR REPLACE VIEW vw_GetAccount AS
+WITH CTE_GetListCountAccount AS(
+SELECT count(GA1.AccountID) AS countGA1 FROM groupaccount GA1
+    GROUP BY GA1.AccountID
+    )
+SELECT A.AccountID, A.Username, count(GA.AccountID) AS SL FROM groupaccount GA
+INNER JOIN account A ON GA.AccountID = A.AccountID
+GROUP BY GA.AccountID
+HAVING count(GA.AccountID) = (
+SELECT MAX(countGA1) AS maxCount FROM CTE_GetListCountAccount
+);
+SELECT * FROM vw_GetAccount;
+-- Question 3: Tạo view có chứa câu hỏi có những content quá dài (content quá 300 từ  được coi là quá dài) và xóa nó đi
+create or replace view vw_listquestion as
+SELECT*FROM question
+where length(content)>14;
+DELETE FROM vw_listquestion;
+-- Question 4: Tạo view có chứa danh sách các phòng ban có nhiều nhân viên nhất.
+CREATE OR REPLACE VIEW vw_MaxNV
+AS
+SELECT D.DepartmentName, count(A.DepartmentID) AS SL 
+FROM account A
+INNER JOIN `department` D ON D.DepartmentID = A.DepartmentID
+GROUP BY A.DepartmentID
+HAVING count(A.DepartmentID) = (SELECT MAX(countDEP_ID) AS maxDEP_ID FROM 
+(SELECT count(A1.DepartmentID) AS countDEP_ID FROM account A1
+GROUP BY A1.DepartmentID) AS TB_countDepID);
+
+SELECT * FROM vw_MaxNV;
+-- Question 5: Tạo view có chứa tất các các câu hỏi do user họ Nguyễn tạo
+CREATE OR REPLACE VIEW vw_Que5
+AS
+SELECT Q.CategoryID, Q.Content, A.FullName AS Creator FROM question Q
+INNER JOIN `account` A ON A.AccountID = Q.CreatorID 
+WHERE SUBSTRING_INDEX( A.FullName, ' ', 1 ) = 'Nguyễn';
+
+SELECT * FROM vw_Que5;
+-- /////////////////////////Testing_System_Assignment_6//////////////////
+-- question1 
+DROP PROCEDURE IF EXISTS sp_GetAccFromDep;
+DELIMITER $$
+CREATE PROCEDURE sp_GetAccFromDep(IN namedep VARCHAR(30))
+BEGIN
+	SELECT a.email,a.fullname, d.departmentname  FROM `account`a
+	INNER JOIN department d on a.departmentid=d.departmentid
+	WHERE d.departmentname=namedep; 
+END$$
+DELIMITER ;
+call vidu2.sp_GetAccFromDep('marketing');
+-- Question 2: Tạo store để in ra số lượng account trong mỗi group
+DROP PROCEDURE IF EXISTS sp_GetCountAccFromGroup;
+DELIMITER $$
+CREATE PROCEDURE sp_GetCountAccFromGroup(IN in_group_name NVARCHAR(50))
+BEGIN
+	SELECT g.GroupName, count(ga.AccountID) AS SL FROM groupaccount ga
+	INNER JOIN `group` g ON ga.GroupID = g.GroupID
+	WHERE g.GroupName = in_group_name;
+END$$
+DELIMITER ;
+Call sp_GetCountAccFromGroup('Testing System');
+-- Question 3: Tạo store để thống kê mỗi type question có bao nhiêu question được tạo trong tháng hiện tại
+DROP PROCEDURE IF EXISTS sp_GetCountTypeInMonth;
+DELIMITER $$
+CREATE PROCEDURE sp_GetCountTypeInMonth()
+BEGIN
+SELECT tq.TypeName, count(q.TypeID) FROM question q
+INNER JOIN typequestion tq ON q.TypeID = tq.TypeID
+WHERE month(q.CreateDate) = month(now()) AND year(q.CreateDate) = year(now())
+GROUP BY q.TypeID;
+END$$
+DELIMITER ;
+Call sp_GetCountTypeInMonth();
+-- Question 4: Tạo store để trả ra id của type question có nhiều câu hỏi nhất
+DROP PROCEDURE IF EXISTS sp_GetCountQuesFromType;
+DELIMITER $$
+CREATE PROCEDURE sp_GetCountQuesFromType()
+BEGIN
+	WITH CTE_MaxTypeID AS(
+		SELECT count(q.TypeID) AS SL FROM question q
+		GROUP BY q.TypeID	
+		)
+	SELECT tq.TypeName, count(q.TypeID) AS SL FROM question q
+	INNER JOIN typequestion tq ON tq.TypeID = q.TypeID
+	GROUP BY q.TypeID
+    HAVING count(q.TypeID) = (SELECT MAX(SL) FROM CTE_MaxTypeID);
+END$$
+DELIMITER ;
+Call sp_GetCountQuesFromType();
+-- Question 5: Sử dụng store ở question 4 để tìm ra tên của type question
+DROP PROCEDURE IF EXISTS sp_GetCountQuesFromType;
+DELIMITER $$
+CREATE PROCEDURE sp_GetCountQuesFromType()
+BEGIN
+	WITH CTE_MaxTypeID AS(
+		SELECT count(q.TypeID) AS SL FROM question q
+		GROUP BY q.TypeID	
+		)
+	SELECT tq.TypeName, count(q.TypeID) AS SL FROM question q
+	INNER JOIN typequestion tq ON tq.TypeID = q.TypeID
+	GROUP BY q.TypeID
+	HAVING count(q.TypeID) = (SELECT MAX(SL) FROM CTE_MaxTypeID);
+END$$
+DELIMITER ;
+
+Call sp_GetCountQuesFromType();
+SET @ID =0;
+Call sp_GetCountQuesFromType(@ID);
+SELECT * FROM typequestion WHERE TypeID = @ID;
+-- Question 6: Viết 1 store cho phép người dùng nhập vào 1 chuỗi và trả về group có tên chứa chuỗi của người dùng nhập vào hoặc trả về user có username chứa chuỗi của người dùng nhập vào
+DROP PROCEDURE IF EXISTS sp_getNameAccOrNameGroup;
+DELIMITER $$
+CREATE PROCEDURE sp_getNameAccOrNameGroup
+( IN var_String VARCHAR(50)
+)
+BEGIN
+		SELECT g.GroupName FROM `group` g WHERE g.GroupName LIKE CONCAT("%",var_String,"%")
+		UNION
+		SELECT a.Username FROM `account` a WHERE a.Username LIKE CONCAT("%",var_String,"%");
+END$$
+DELIMITER ;
+Call sp_getNameAccOrNameGroup('s');
+-- Question 7: Viết 1 store cho phép người dùng nhập vào thông tin fullName, email và trong store sẽ tự động gán:.....
+DROP PROCEDURE IF EXISTS sp_insertAccount;
+DELIMITER $$
+CREATE PROCEDURE sp_insertAccount
+(	IN var_Email VARCHAR(50),
+	IN var_Fullname VARCHAR(50))
+BEGIN
+	DECLARE v_Username VARCHAR(50) DEFAULT SUBSTRING_INDEX(var_Email, '@', 1);
+	DECLARE v_DepartmentID  TINYINT UNSIGNED DEFAULT 11;
+	DECLARE v_PositionID TINYINT UNSIGNED DEFAULT 1;
+                  DECLARE v_CreateDate DATETIME DEFAULT now();
+	INSERT INTO `account` (`Email`,		 `Username`, 	`FullName`, 		`DepartmentID`,			 `PositionID`, 			`CreateDate`) 
+	VALUES 				  (var_Email,     v_Username,      var_Fullname,          v_DepartmentID,          v_PositionID,         v_CreateDate);
+
+END$$
+DELIMITER ;
+Call sp_insertAccount('daonq@viettel.com.vn','Nguyen dao');
+-- Question 9: Viết 1 store cho phép người dùng xóa exam dựa vào ID Bảng Exam có liên kết khóa ngoại đến bảng examquestion vì vậy trước khi xóa dữ liệu trong bảng exam cần xóa dữ liệu trong bảng examquestion trước
+DROP PROCEDURE IF EXISTS sp_DeleteExamWithID;
+DELIMITER $$
+CREATE PROCEDURE sp_DeleteExamWithID (IN in_ExamID TINYINT UNSIGNED)
+BEGIN
+	DELETE FROM examquestion WHERE	ExamID = in_ExamID;
+	DELETE FROM Exam WHERE	ExamID = in_ExamID;	
+END$$
+DELIMITER ;
+CALL sp_DeleteExamWithID(7);
+-- Question 10: Tìm ra các exam được tạo từ 3 năm trước và xóa các exam đó đi (sử dụng store ở câu 9 để xóa)  Sau đó in số lượng record đã remove từ các table liên quan trong khi removing
+-- Question 11: Viết store cho phép người dùng xóa phòng ban bằng cách người dùng nhập vào tên phòng ban và các account thuộc phòng ban đó sẽ được chuyển về phòng ban default là phòng ban chờ việc.
+DROP PROCEDURE IF EXISTS SP_DelDepFromName;
+DELIMITER $$
+CREATE PROCEDURE SP_DelDepFromName(IN var_DepartmentName VARCHAR(30))
+BEGIN
+	DECLARE v_DepartmentID VARCHAR(30) ;
+    SELECT D1.DepartmentID   INTO v_DepartmentID FROM department D1 WHERE D1.DepartmentName = var_DepartmentName;
+	UPDATE `account` A SET A.DepartmentID  = '11' WHERE A.DepartmentID = v_DepartmentID;
+    
+	DELETE FROM department d WHERE d.DepartmentName = var_DepartmentName;
+END$$
+DELIMITER ;
+Call SP_DelDepFromName('Marketing');
+-- /////////////////////////Testing_System_Assignment_7//////////////////
+-- Question 2:tạo trigger không cho phép người dùng thêm bất kỳ user nào vào
+-- phòng "sale" nữa,khi thêm thì hiện ra thông báo department
+-- 				"sale" can not 
+DROP TRIGGER IF EXISTS TrG_NotAddUserToSale;
+DELIMITER $$
+	CREATE TRIGGER TrG_NotAddUserToSale
+    BEFORE INSERT ON `account`
+    FOR EACH ROW
+    BEGIN
+			DECLARE v_depID TINYINT;
+			SELECT d.DepartmentID INTO v_depID FROM department d WHERE d.DepartmentName = 'Sale';
+			IF (NEW.DepartmentID = v_depID) THEN
+				SIGNAL SQLSTATE '12345'
+				SET MESSAGE_TEXT = 'Cant add more User to Sale Department';
+			END IF;
+    END$$
+DELIMITER ;
+
+INSERT INTO `testingsystem`.`account` (`Email`, `Username`, `FullName`, `DepartmentID`, `PositionID`, `CreateDate`)
+								VALUES (1, 		1,		 1, 			2,		 1,		 '2020-11-13 00:00:00');
+-- Question 1: Tạo trigger không cho phép người dùng nhập vào Group có ngày tạo 1 năm trước  
+DROP TRIGGER IF EXISTS Trg_CheckInsertGroup;
+DELIMITER $$
+	CREATE TRIGGER Trg_CheckInsertGroup
+   BEFORE INSERT ON `Group`
+    FOR EACH ROW
+    BEGIN
+    DECLARE v_CreateDate DATETIME;
+    SET v_CreateDate = DATE_SUB(NOW(), interval 1 year);
+		IF (NEW.CreateDate <= v_CreateDate) THEN
+				SIGNAL SQLSTATE '12345'
+				SET MESSAGE_TEXT = 'Cant create this group';
+			END IF;
+    END$$
+DELIMITER ;
+
+INSERT INTO `testingsystem`.`group` (`GroupName`, `CreatorID`, `CreateDate`) 
+VALUES								 (2, 1, '2018-04-10 00:00:00');
+                              
+-- lấy ra danh sách nhân viên có phòng ban sale,marketing,...và vị trí Dev,Test
+DROP PROCEDURE IF EXISTS sp_GetAccFromDep11;
+DELIMITER $$
+CREATE PROCEDURE sp_GetAccFromDep11(IN namedep Varchar(30),IN namepos varchar(30))
+BEGIN
+	select *from  `account`a
+	inner join position d on a.positionid=d.positionid
+	inner join department p on a.departmentid=p.departmentid
+	where p.departmentname=namedep and d.positionname=namepos;
+END$$
+DELIMITER ;
+call vidu2.sp_GetAccFromDep11('sale', 'test');
+-- nhập vào tên phòng ban=>>> lấy được id phòng 
+SELECT*FROM DEPARTMENT; 
+DROP PROCEDURE IF EXISTS sp_GetAccFromDep111;
+DELIMITER $$
+CREATE PROCEDURE sp_GetAccFromDep111(IN namedep VARCHAR(30),out idDep Tinyint)
+BEGIN
+	SELECT DEPARTMENTID into idDep FROM DEPARTMENT
+    WHERE DEPARTMENTNAME=namedep;
+END$$
+DELIMITER ;
+-- khai bao bien
+ SET @v_DepID=0;
+call sp_GetAccFromDep111('SALE',@v_DepID);
+set @idDep = 0;
+-- Question 4: Tạo store để trả ra id của type question có nhiều câu hỏi nhất ass6
+WITH CTE_tmp AS (
+SELECT COUNT(1) AS SL FROM QUESTION
+GROUP BY TYPEID
+)
+SELECT TYPEID FROM QUESTION
+GROUP BY TYPEID
+HAVING COUNT(1)=(SELECT max(SL) FROM CTE_tmp);
+DROP PROCEDURE IF EXISTS sp_GetAccFromDep1111;
+DELIMITER $$
+CREATE PROCEDURE sp_GetAccFromDep1111(OUT out_typeid tinyint)
+BEGIN
+	WITH CTE_tmp AS (
+	SELECT COUNT(1) AS SL FROM QUESTION
+	GROUP BY TYPEID
+	)
+	SELECT TYPEID into out_typeid   FROM QUESTION
+	GROUP BY TYPEID
+	HAVING COUNT(1)=(SELECT max(SL) FROM CTE_tmp);
+END$$
+DELIMITER ;
+
+SET @v_typeidmax=0;
+call sp_GetAccFromDep1111(@v_typeidmax);
+-- viết procedure tính tổng 2 số 
+DROP PROCEDURE IF EXISTS sp_sum;
+DELIMITER $$
+CREATE PROCEDURE sp_sum(IN numInput1 TINYINT,IN numInput2 TINYINT,OUT number3 TINYINT)
+BEGIN
+	DECLARE sum TINYINT DEFAULT 0;
+    SET sum = numInput1 +  numInput2;
+    SELECT sum INTO number3;
+END$$
+DELIMITER ;
+
+SET @sum2Num = 0;
+CALL sp_num(10,20,@sum2Num);
+SELECT @sum2Num;
+
+-- function 
+-- viết function để tính tổng 2 số alter
+SET GLOBAL log_bin_trust_function_creators=1;
+DROP FUNCTION IF EXISTS fc_sum;
+DELIMITER $$
+CREATE FUNCTION fc_sum(number1 int,number2 int) returns int
+BEGIN
+	DECLARE sum INT DEFAULT 0;
+    SET sum =number1 +number2;
+    RETURN sum;
+END$$
+DELIMITER ;
+SELECT fc_sum(40,40) as sum;
+
+-- viết hàm lấy ra username  từ email của account:daonq@gmail.com ==> daonq
+SET GLOBAL log_bin_trust_function_creators = 1;
+DROP FUNCTION IF EXISTS fc_name;
+DELIMITER $$   
+CREATE FUNCTION fc_name(emailinput varchar(50)) RETURNS VARCHAR(50)
+BEGIN   
+	DECLARE username VARCHAR(50) DEFAULT '';
+	SELECT substring_index(emailinput,'@',1) INTO username;
+RETURN username ;  
+END $$
+
+SELECT *FROM account;
+SELECT fc_name(Email) from `account`;
+SELECT fc_name('daonq@vti.com.vn') AS username;
+
+-- viết ra tên văn phòng ban theo id
+SET GLOBAL log_bin_trust_function_creators = 1;
+DROP FUNCTION IF EXISTS fc_getnamedepfromid;
+DELIMITER $$   
+CREATE FUNCTION fc_getnamedepfromid(idDepInput tinyint) RETURNS varchar(50)
+BEGIN   
+	DECLARE depname varchar(50);
+    SELECT d.departmentname INTO depname from department d where d.departmentid=idDepinput ;
+RETURN depName ;  
+END $$
+
+SELECT fc_getnamedepfromid(6) As depname;
+
+SELECT fc_getnamedepfromid(departmentid) As depname;
+
+-- TRIGGER:viết trigger để không cho phép gnuoiwf dùng insert quá 20 bản ghi  vào department
+ DROP TRIGGER IF EXISTS Trg_checkCountDeptable;
+DELIMITER $$
+CREATE TRIGGER Trg_checkCountDeptable
+BEFORE INSERT ON `Department`
+FOR EACH ROW
+BEGIN		
+	DECLARE countDep TINYINT DEFAULT 0;
+	SELECT COUNT(1) INTO countDep FROM department d; -- countdep=Số lượng bản ghi trong bảng department
+-- Nếu countdep >20 thì dùng chương trình và in thông báo:can't add more Department!! 
+IF (coutndep > 20) THEN
+		SIGNAL SQLSTATE'12345'
+        SET MESSAGE_TEXT='cant add mỏe department!!';
+  END IF;
+END$$
+ DELIMITER ;
+INSERT INTO Department	(DepartmentName)
+VALUES					(N'sale');
+
+
+
+ 
 
 
 
@@ -358,6 +696,4 @@ WHERE a.AnswerID IS NULL;
 
 
 
-
-
-							
+						

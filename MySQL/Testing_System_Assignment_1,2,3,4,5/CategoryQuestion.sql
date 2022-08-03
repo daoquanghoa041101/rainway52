@@ -1,1 +1,0 @@
-SELECT * FROM vidu2.categoryquestion;
